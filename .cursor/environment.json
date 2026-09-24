@@ -1,0 +1,17 @@
+{
+  "name": "pebble-ci",
+  "install": "npm ci",
+  "terminals": [
+    {
+      "name": "dashboard",
+      "command": "npm run dev",
+      "description": "Pebble CI web dashboard with hot reload, served on http://localhost:3000"
+    }
+  ],
+  "ports": [
+    {
+      "name": "dashboard",
+      "port": 3000
+    }
+  ]
+}

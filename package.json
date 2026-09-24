@@ -1,0 +1,39 @@
+{
+  "name": "pebble-ci",
+  "version": "0.1.0",
+  "description": "Pebble CI — a tiny local continuous-integration runner with a CLI and web dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "pebble": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsx watch src/server.ts",
+    "cli": "tsx src/cli.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.2",
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

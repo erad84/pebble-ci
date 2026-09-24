@@ -1,0 +1,14 @@
+name: pebble-ci
+jobs:
+  - name: build
+    steps:
+      - name: typecheck
+        run: npm run --silent typecheck
+      - name: compile
+        run: npm run --silent build
+  - name: verify
+    steps:
+      - name: lint
+        run: npm run --silent lint
+      - name: test
+        run: npm test --silent

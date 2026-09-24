@@ -1,0 +1,14 @@
+name: failing-demo
+jobs:
+  - name: build
+    steps:
+      - name: compile
+        run: node -e "console.log('compiled ok')"
+      - name: broken step
+        run: node -e "console.error('boom the build failed'); process.exit(2)"
+      - name: never runs
+        run: "echo 'this step should be skipped'"
+  - name: deploy
+    steps:
+      - name: skipped job
+        run: "echo 'downstream job is skipped after failure'"

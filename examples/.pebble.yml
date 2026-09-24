@@ -1,0 +1,14 @@
+name: demo
+jobs:
+  - name: build
+    steps:
+      - name: install deps
+        run: "echo 'Installing dependencies...' && sleep 0.1"
+      - name: compile
+        run: node -e "console.log('compiled 42 modules')"
+  - name: test
+    steps:
+      - name: unit tests
+        run: node -e "console.log('12 passed, 0 failed')"
+      - name: lint
+        run: "echo 'no lint errors'"

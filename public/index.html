@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pebble CI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">▲</span>
+        <div>
+          <h1>Pebble CI</h1>
+          <p class="tagline">A tiny local continuous-integration runner</p>
+        </div>
+      </div>
+      <button id="run-btn" class="run-btn">Run pipeline</button>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>Pipeline</h2>
+        <div id="pipeline" class="pipeline">Loading…</div>
+      </section>
+
+      <section class="panel">
+        <h2>Runs</h2>
+        <div id="runs" class="runs">No runs yet. Click “Run pipeline”.</div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
