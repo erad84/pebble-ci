@@ -1,0 +1,128 @@
+# Composite action: Firebase login from CI secrets + CloudPebble .pbw install.
+# Invoked by pebble-build-reusable.yml. Never prints secret values.
+
+name: cloudpebble-install
+description: Log into CloudPebble with caller secrets and install a .pbw
+
+inputs:
+  pbw-path:
+    description: Path to the .pbw (file or glob under the workspace)
+    required: true
+  docker-image:
+    description: Pebble SDK Docker image (same as build)
+    required: false
+    default: 'ghcr.io/skylord123/docker-coredevices-pebble-tool:latest'
+  refresh-token:
+    description: Firebase refresh token (from caller secret)
+    required: true
+  api-key:
+    description: Optional Firebase Web API key (tool default used when empty)
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve .pbw path
+      id: pbw
+      shell: bash
+      env:
+        PBW_INPUT: ${{ inputs.pbw-path }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        if [ -f "${PBW_INPUT}" ]; then
+          PBW="${PBW_INPUT}"
+        else
+          matches=( ${PBW_INPUT} )
+          if [ "${#matches[@]}" -eq 0 ]; then
+            echo "::error title=Missing .pbw::No file matched: ${PBW_INPUT}"
+            exit 1
+          fi
+          if [ "${#matches[@]}" -gt 1 ]; then
+            echo "::error title=Multiple .pbw files::Expected one .pbw, found ${#matches[@]} under ${PBW_INPUT}"
+            exit 1
+          fi
+          PBW="${matches[0]}"
+        fi
+        echo "pbw=${PBW}" >> "${GITHUB_OUTPUT}"
+        echo "Using pbw: ${PBW} ($(wc -c < "${PBW}") bytes)"
+
+    - name: Bootstrap Firebase credentials from secrets
+      shell: bash
+      env:
+        PEBBLE_FIREBASE_REFRESH_TOKEN: ${{ inputs.refresh-token }}
+        PEBBLE_FIREBASE_API_KEY: ${{ inputs.api-key }}
+        HOME: ${{ runner.temp }}/pebble-home
+      run: |
+        set -euo pipefail
+        mkdir -p "${HOME}"
+        python3 "${{ github.action_path }}/cloudpebble_login_from_secrets.py"
+
+    - name: Verify Firebase login (no secrets printed)
+      shell: bash
+      env:
+        HOME: ${{ runner.temp }}/pebble-home
+        DOCKER_IMAGE: ${{ inputs.docker-image }}
+      run: |
+        set -euo pipefail
+        docker run --rm \
+          -v "${HOME}:/tmp" \
+          -e HOME=/tmp \
+          --user "$(id -u):$(id -g)" \
+          "${DOCKER_IMAGE}" \
+          bash -c 'pebble login --status' | tee "${{ runner.temp }}/pebble-login-status.txt"
+        if grep -qi 'logged out' "${{ runner.temp }}/pebble-login-status.txt"; then
+          echo "::error title=Not logged in::pebble login --status reported logged out after credential bootstrap."
+          exit 1
+        fi
+
+    - name: Install .pbw via CloudPebble
+      id: install
+      shell: bash
+      env:
+        HOME: ${{ runner.temp }}/pebble-home
+        DOCKER_IMAGE: ${{ inputs.docker-image }}
+        PBW: ${{ steps.pbw.outputs.pbw }}
+      run: |
+        set -uo pipefail
+        LOG="${{ runner.temp }}/cloudpebble-install.log"
+        ABS_PBW="$(cd "$(dirname "${PBW}")" && pwd)/$(basename "${PBW}")"
+        PBW_DIR="$(dirname "${ABS_PBW}")"
+        PBW_BASE="$(basename "${ABS_PBW}")"
+
+        set +e
+        docker run --rm \
+          -v "${HOME}:/tmp" \
+          -v "${PBW_DIR}:/pbw:ro" \
+          -e HOME=/tmp \
+          --user "$(id -u):$(id -g)" \
+          "${DOCKER_IMAGE}" \
+          bash -c "pebble install --cloudpebble /pbw/${PBW_BASE} -v" \
+          2>&1 | tee "${LOG}"
+        rc=${PIPESTATUS[0]}
+        set -e
+        echo "exit-code=${rc}" >> "${GITHUB_OUTPUT}"
+        echo "log=${LOG}" >> "${GITHUB_OUTPUT}"
+        exit "${rc}"
+
+    - name: Classify failure / write job summary
+      if: always() && steps.install.outcome != 'skipped'
+      shell: bash
+      env:
+        LOG: ${{ steps.install.outputs.log }}
+        EXIT_CODE: ${{ steps.install.outputs.exit-code }}
+      run: |
+        set -euo pipefail
+        if [ -z "${LOG:-}" ] || [ ! -f "${LOG}" ]; then
+          LOG="${{ runner.temp }}/cloudpebble-install.log"
+          echo "(no install log captured)" > "${LOG}"
+        fi
+        # Default exit-code when the install step blew up before writing outputs.
+        rc="${EXIT_CODE:-1}"
+        if [ "${{ steps.install.outcome }}" = "success" ]; then
+          rc=0
+        fi
+        python3 "${{ github.action_path }}/classify_cloudpebble_failure.py" \
+          --log "${LOG}" \
+          --exit-code "${rc}"

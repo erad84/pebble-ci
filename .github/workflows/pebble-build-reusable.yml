@@ -2,6 +2,11 @@
 # Call from any Pebble repo (pin @v1; breaking changes get v2):
 #   uses: erad84/pebble-ci/.github/workflows/pebble-build-reusable.yml@v1
 #
+# Optional CloudPebble install (additive; default off — existing @v1 callers unchanged):
+#   with:
+#     install-cloudpebble: true
+#   secrets: inherit   # or pass PEBBLE_FIREBASE_* explicitly
+#
 # Image: ghcr.io/skylord123/docker-coredevices-pebble-tool (Core Devices pebble-tool + SDK).
 # Issues / update requests: https://github.com/erad84/pebble-ci/issues
 
@@ -44,6 +49,27 @@ on:
         type: string
         required: false
         default: 'auto'
+      install-cloudpebble:
+        description: >
+          After a successful build, optionally install the .pbw to a watch via
+          CloudPebble. Requires caller secrets (see PEBBLE_FIREBASE_*). When
+          true but the refresh-token secret is empty, the install job skips
+          with a notice (build still succeeds).
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      PEBBLE_FIREBASE_REFRESH_TOKEN:
+        description: >
+          Firebase refresh_token from local pebble login storage
+          (~/.local/share/pebble-sdk/oauth_firebase/firebase_oauth_storage.json).
+          Required for CloudPebble install. Never commit this value.
+        required: false
+      PEBBLE_FIREBASE_API_KEY:
+        description: >
+          Optional Firebase Web API key. When unset, pebble-tool's public
+          default for the Rebble/Core Devices project is used.
+        required: false
     outputs:
       artifact-name:
         description: Artifact name that was uploaded
@@ -141,3 +167,59 @@ jobs:
           name: ${{ inputs.artifact-name }}
           path: ${{ inputs.working-directory }}/build/*.pbw
           if-no-files-found: error
+
+  cloudpebble-install:
+    name: cloudpebble-install
+    needs: build
+    if: ${{ inputs.install-cloudpebble }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check CloudPebble secrets
+        id: secrets
+        env:
+          HAS_REFRESH: ${{ secrets.PEBBLE_FIREBASE_REFRESH_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          echo "has-refresh=${HAS_REFRESH}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "## CloudPebble install gate"
+            echo ""
+            if [ "${HAS_REFRESH}" != "true" ]; then
+              echo "Input \`install-cloudpebble: true\` but caller secret"
+              echo "\`PEBBLE_FIREBASE_REFRESH_TOKEN\` is **not set**."
+              echo ""
+              echo "Build artifact is still available. To enable install:"
+              echo "1. Locally run \`pebble login\` (browser)."
+              echo "2. Copy **only** the \`refresh_token\` field from"
+              echo "   \`~/.local/share/pebble-sdk/oauth_firebase/firebase_oauth_storage.json\`"
+              echo "3. Add GitHub Actions secret \`PEBBLE_FIREBASE_REFRESH_TOKEN\` on the **caller** repo."
+              echo "4. Optional: \`PEBBLE_FIREBASE_API_KEY\` (defaults to pebble-tool public key)."
+              echo "5. Re-run this workflow."
+              echo ""
+              echo "Pass secrets with \`secrets: inherit\` or explicit \`secrets:\` mapping."
+            else
+              echo "Refresh token secret is present — proceeding with install."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+          if [ "${HAS_REFRESH}" != "true" ]; then
+            echo "::notice title=CloudPebble install skipped::PEBBLE_FIREBASE_REFRESH_TOKEN is not set on the caller repo. Build succeeded; add the secret and re-run to install."
+          fi
+
+      - name: Download .pbw artifact
+        if: steps.secrets.outputs.has-refresh == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact-name }}
+          path: pbw-artifact
+
+      - name: Install to watch via CloudPebble
+        if: steps.secrets.outputs.has-refresh == 'true'
+        # Same floating major as the reusable workflow (@v1). Move the v1 tag
+        # when releasing so workflow + action stay aligned.
+        uses: erad84/pebble-ci/.github/actions/cloudpebble-install@v1
+        with:
+          pbw-path: pbw-artifact/*.pbw
+          docker-image: ${{ inputs.docker-image }}
+          refresh-token: ${{ secrets.PEBBLE_FIREBASE_REFRESH_TOKEN }}
+          api-key: ${{ secrets.PEBBLE_FIREBASE_API_KEY }}
