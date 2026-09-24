@@ -1,5 +1,12 @@
 # Composite action: Firebase login from CI secrets + CloudPebble .pbw install.
 # Invoked by pebble-build-reusable.yml. Never prints secret values.
+#
+# Auth path note: skylord123/docker-coredevices-pebble-tool's entrypoint creates
+# $HOME/.pebble-sdk → /home/pebble/.pebble-sdk when the legacy dir is missing.
+# pebble-tool then prefers that legacy tree over XDG (~/.local/share/pebble-sdk).
+# CI bootstraps credentials into the XDG path on the runner, then bind-mounts
+# that oauth_firebase directory onto /home/pebble/.pebble-sdk/oauth_firebase
+# inside the container (with HOME=/home/pebble) so login/install see them.
 
 name: cloudpebble-install
 description: Log into CloudPebble with caller secrets and install a .pbw
@@ -58,6 +65,12 @@ runs:
         set -euo pipefail
         mkdir -p "${HOME}"
         python3 "${{ github.action_path }}/cloudpebble_login_from_secrets.py"
+        CRED_DIR="${HOME}/.local/share/pebble-sdk/oauth_firebase"
+        if [ ! -f "${CRED_DIR}/firebase_oauth_storage.json" ]; then
+          echo "::error title=Credential bootstrap::Expected oauth storage was not written."
+          exit 1
+        fi
+        echo "cloudpebble-login: host creds ready under XDG oauth_firebase (contents not printed)"
 
     - name: Verify Firebase login (no secrets printed)
       shell: bash
@@ -66,14 +79,32 @@ runs:
         DOCKER_IMAGE: ${{ inputs.docker-image }}
       run: |
         set -euo pipefail
+        CRED_DIR="${HOME}/.local/share/pebble-sdk/oauth_firebase"
+        # Mount XDG oauth dir onto the image's legacy SDK oauth path. The image
+        # entrypoint forces ~/.pebble-sdk (legacy) when HOME=/tmp; using
+        # HOME=/home/pebble avoids that symlink and keeps the real SDK.
         docker run --rm \
-          -v "${HOME}:/tmp" \
-          -e HOME=/tmp \
+          -v "${CRED_DIR}:/home/pebble/.pebble-sdk/oauth_firebase" \
+          -e HOME=/home/pebble \
           --user "$(id -u):$(id -g)" \
           "${DOCKER_IMAGE}" \
-          bash -c 'pebble login --status' | tee "${{ runner.temp }}/pebble-login-status.txt"
+          bash -c '
+            set -euo pipefail
+            cred="/home/pebble/.pebble-sdk/oauth_firebase/firebase_oauth_storage.json"
+            if [ -f "${cred}" ]; then
+              echo "cloudpebble-login: creds visible in container at legacy oauth path"
+            else
+              echo "cloudpebble-login: ERROR creds missing in container at legacy oauth path" >&2
+              exit 1
+            fi
+            pebble login --status
+          ' | tee "${{ runner.temp }}/pebble-login-status.txt"
         if grep -qi 'logged out' "${{ runner.temp }}/pebble-login-status.txt"; then
           echo "::error title=Not logged in::pebble login --status reported logged out after credential bootstrap."
+          exit 1
+        fi
+        if ! grep -qi 'logged in' "${{ runner.temp }}/pebble-login-status.txt"; then
+          echo "::error title=Login status unclear::pebble login --status did not report logged in."
           exit 1
         fi
 
@@ -90,12 +121,13 @@ runs:
         ABS_PBW="$(cd "$(dirname "${PBW}")" && pwd)/$(basename "${PBW}")"
         PBW_DIR="$(dirname "${ABS_PBW}")"
         PBW_BASE="$(basename "${ABS_PBW}")"
+        CRED_DIR="${HOME}/.local/share/pebble-sdk/oauth_firebase"
 
         set +e
         docker run --rm \
-          -v "${HOME}:/tmp" \
+          -v "${CRED_DIR}:/home/pebble/.pebble-sdk/oauth_firebase" \
           -v "${PBW_DIR}:/pbw:ro" \
-          -e HOME=/tmp \
+          -e HOME=/home/pebble \
           --user "$(id -u):$(id -g)" \
           "${DOCKER_IMAGE}" \
           bash -c "pebble install --cloudpebble /pbw/${PBW_BASE} -v" \

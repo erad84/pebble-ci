@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Bootstrap pebble-tool Firebase credentials from CI secrets (never prints secrets)."""
+"""Bootstrap pebble-tool Firebase credentials from CI secrets (never prints secrets).
+
+Writes XDG path: $HOME/.local/share/pebble-sdk/oauth_firebase/firebase_oauth_storage.json
+
+The CloudPebble install action then bind-mounts that oauth_firebase directory onto
+/home/pebble/.pebble-sdk/oauth_firebase inside the SDK Docker image. That image's
+entrypoint prefers the legacy ~/.pebble-sdk tree, so mounting into the legacy
+oauth path is required for `pebble login --status` / `pebble install --cloudpebble`
+to see the bootstrapped credentials.
+"""
 
 from __future__ import annotations
 
