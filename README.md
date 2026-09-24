@@ -96,10 +96,13 @@ install job **skips** with a notice (build + artifact still succeed).
 1. Builds and uploads the `.pbw` (unchanged).
 2. Optional `cloudpebble-install` job downloads the artifact.
 3. Exchanges the refresh token for a short-lived Firebase `id_token` (never
-   printed).
-4. Runs `pebble install --cloudpebble` inside the same Docker SDK image.
-5. On failure: writes a **job summary** and a failing **step annotation** with
-   an actionable cause (see below).
+   printed) and writes XDG oauth storage under the job temp `HOME`.
+4. Runs `pebble login --status` / `pebble install --cloudpebble` inside the
+   SDK Docker image with `HOME=/home/pebble`, bind-mounting the bootstrapped
+   `oauth_firebase` directory onto `/home/pebble/.pebble-sdk/oauth_firebase`
+   (the image entrypoint makes pebble-tool prefer that legacy path over XDG).
+5. On install failure: writes a **job summary** and a failing **step
+   annotation** with an actionable cause (see below).
 
 ### Failure meanings (Actions UI)
 
@@ -131,6 +134,7 @@ Open a GitHub Issue on this repo:
 | Ref | Use |
 | --- | --- |
 | `@v1` | **Recommended** — stable major; pin this in callers |
+| `@v1.1.1` | CloudPebble Firebase login fix (legacy SDK oauth mount) |
 | `@v1.1.0` | First release with optional CloudPebble install |
 | `@v2` | Next major if the `workflow_call` contract breaks |
 | `@main` | Development tip — not for production callers |
